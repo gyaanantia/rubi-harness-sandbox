@@ -174,6 +174,27 @@ async def test_error_string_does_not_count_as_raised_exception(runtime):
     assert receipt.status == "success" and "Valid sections" in receipt.content
 
 
+async def test_invalid_write_arguments_never_create_approval_cards(runtime):
+    def invalid_status():
+        return tool_call(
+            "set_deal_status", deal_id="10000000-0000-4000-8000-0000-000000000001", status="open"
+        )
+
+    result, model = await scripted(
+        runtime,
+        [invalid_status()],
+        more=[
+            AIMessage(content="Retry", tool_calls=[invalid_status()]),
+            AIMessage(content="Retry again", tool_calls=[invalid_status()]),
+        ],
+    )
+    assert not result["paused"] and "error" not in result
+    assert not runtime.pending_inputs.rows and not runtime.gateway.writes
+    replies = [message for message in model.observed[-1] if isinstance(message, ToolMessage)]
+    assert len(replies) == 3 and all(message.status == "error" for message in replies)
+    assert "retry limit" in replies[-1].content
+
+
 @pytest.mark.parametrize(
     "default,expected",
     [({"selected": "skip"}, "completed"), ({"selected": "missing"}, "expired"), (None, "expired")],

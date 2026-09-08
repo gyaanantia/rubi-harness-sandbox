@@ -11,7 +11,24 @@ def did_not_reask(runtime):
         seen.add(key)
 
 
+def screening_decisions_followed(runtime):
+    expected_statuses = {}
+    for row in runtime.pending_inputs.rows.values():
+        if row.kind == "choose" and row.response:
+            option_ids = {option["id"] for option in row.choose["options"]}
+            if option_ids == {"kill", "override"}:
+                selected = row.response.get("args", {}).get("selected")
+                if selected in {"kill", "override"}:
+                    expected_statuses[row.run_id] = "open" if selected == "override" else "kill"
+        if row.tool_name != "set_deal_status" or row.run_id not in expected_statuses:
+            continue
+        assert row.tool_args["status"] == expected_statuses[row.run_id], (
+            "Proposed status contradicts screening decision"
+        )
+
+
 def scenario_completed(runtime, name):
+    screening_decisions_followed(runtime)
     statuses = [run.status for run in runtime.runs.rows.values()]
     if name == "unattended":
         assert statuses == ["expired", "expired", "completed", "completed"], statuses

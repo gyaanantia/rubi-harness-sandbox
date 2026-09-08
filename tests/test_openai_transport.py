@@ -43,6 +43,12 @@ async def test_openai_adapter_pause_resume_and_hidden_context(runtime):
                 ],
             }
         else:
+            choice_reply = next(
+                message
+                for message in payload["messages"]
+                if message["role"] == "tool" and message["tool_call_id"] == "pick"
+            )
+            assert json.loads(choice_reply["content"]) == {"selected": "skip"}
             assert {
                 message["tool_call_id"]
                 for message in payload["messages"]

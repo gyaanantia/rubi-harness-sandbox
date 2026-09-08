@@ -29,7 +29,7 @@ def should_gate(ctx, name):
 
 def validated_arguments(call):
     tool = registry.get(call["name"])
-    return tool.args_schema.model_validate(call["args"]).model_dump(exclude={"runtime"})
+    return tool.tool_call_schema.model_validate(call["args"]).model_dump(mode="json")
 
 
 class ApprovalGate(AgentMiddleware):
@@ -125,9 +125,9 @@ class ApprovalGate(AgentMiddleware):
         raise GateAwaitingApproval(run.id, pending_ids)
 
     def validate_card(self, call):
-        if call["name"] != "request_input":
-            return call["args"]
         arguments = validated_arguments(call)
+        if call["name"] != "request_input":
+            return arguments
         if arguments["kind"] == "choose":
             options = arguments["options"] or []
             if not options and not arguments["allow_other"]:

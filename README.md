@@ -10,6 +10,9 @@ pending-input rows and raises an exception. The caller returns the cards;
 answering all cards starts a fresh graph invocation on the same checkpoint
 thread. Decisions return as tool messages, then execution continues.
 
+Tool arguments are validated before an approval card is created. Invalid
+arguments count toward the existing retry cap without asking for approval.
+
 The human decision lives outside graph execution because a person can answer
 later, after the original invocation has unwound. This uses neither a graph
 interrupt nor a waiting model call. Everything lives in one local process's
@@ -78,6 +81,8 @@ uv run python -m eval.replay sync_failure --n 5 --fake
 Replay auto-answers cards from a small answer table, counts asks and writes,
 and checks the results. `day2_repeat` deliberately prints red FAIL rows and
 exits 1 because `did_not_reask()` fails. The other scenarios should pass.
+Replay also fails if a proposed status contradicts the kill/override answer;
+its scripted approval of a card is not evidence that the model chose correctly.
 Remove `--fake` to observe real-model variation. Each replay iteration gets
 fresh stores; the runs *within* one iteration share them.
 
