@@ -128,6 +128,10 @@ registered. A successful result resets that tool's count. The model reports the
 failure; the run continues. A tool that returns an error *string* does not raise
 an exception, so it does not increment the count.
 
+Provider errors fail the run without retrying. A truncated, filtered, malformed
+or empty model response also fails; it must not look like a completed task.
+The trace preserves response metadata and token usage for diagnosis.
+
 ## Deliberately missing
 
 There is no cross-run read of pending inputs, no automatic extraction from tool

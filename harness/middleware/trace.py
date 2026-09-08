@@ -1,8 +1,28 @@
 from copy import deepcopy
 
 from langchain.agents.middleware import AgentMiddleware
+from langchain_core.messages import AIMessage
 
 from harness.store.pending_inputs import utc_now
+
+
+class IncompleteModelResponse(RuntimeError):
+    pass
+
+
+def response_error(messages):
+    assistant_messages = [message for message in messages if isinstance(message, AIMessage)]
+    if not assistant_messages:
+        return "Model returned no assistant response"
+    for message in assistant_messages:
+        finish_reason = message.response_metadata.get("finish_reason")
+        if finish_reason in {"length", "content_filter"}:
+            return f"Model response is incomplete (finish_reason={finish_reason})"
+        if message.invalid_tool_calls:
+            return "Model returned malformed tool calls"
+        if not message.text.strip() and not message.tool_calls:
+            return "Model returned an empty response without tool calls"
+    return None
 
 
 def record(ctx, kind, *, tool=None, args=None, status="success", **details):
@@ -27,9 +47,16 @@ class Trace(AgentMiddleware):
         except Exception as error:
             record(ctx, "model", status="error", error=type(error).__name__)
             raise
+        error = response_error(response.result)
         record(
-            ctx, "model", messages=[message.model_dump(mode="json") for message in response.result]
+            ctx,
+            "model",
+            status="error" if error else "success",
+            error=error,
+            messages=[message.model_dump(mode="json") for message in response.result],
         )
+        if error:
+            raise IncompleteModelResponse(error)
         return response
 
     async def awrap_tool_call(self, request, handler):
