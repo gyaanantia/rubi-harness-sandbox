@@ -2,10 +2,16 @@ def did_not_reask(runtime):
     """The same deal must not ask for the same source contact across runs."""
     seen = set()
     for row in runtime.pending_inputs.rows.values():
-        if row.kind != "choose" or row.choose.get("option_type") != "entity":
+        if row.kind != "choose":
             continue
         run = runtime.runs.rows[row.run_id]
-        entities = tuple(sorted(option.get("entity_id", "") for option in row.choose["options"]))
+        entities = tuple(
+            sorted(
+                option["entity_id"] for option in row.choose["options"] if option.get("entity_id")
+            )
+        )
+        if not entities:
+            continue
         key = (run.firm_id, run.bindings.get("deal_id"), entities)
         assert key not in seen, "Repeated source-contact question on the same deal"
         seen.add(key)
