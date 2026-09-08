@@ -41,7 +41,16 @@ def record(ctx, kind, *, tool=None, args=None, status="success", **details):
 class Trace(AgentMiddleware):
     async def awrap_model_call(self, request, handler):
         ctx = request.runtime.context
-        record(ctx, "model", status="started")
+        record(
+            ctx,
+            "model",
+            status="started",
+            input_messages=[
+                message.model_dump(mode="json")
+                for message in [request.system_message, *request.messages]
+                if message is not None
+            ],
+        )
         try:
             response = await handler(request)
         except Exception as error:

@@ -13,11 +13,16 @@ from tests.test_round_trip import scripted
 async def test_scenarios(runtime, name):
     await SCENARIOS[name].run(runtime, auto_answer)
     scenario_completed(runtime, name)
-    if name == "day2_repeat":
-        with pytest.raises(AssertionError, match="Repeated source-contact"):
-            did_not_reask(runtime)
 
 
+@pytest.mark.baseline
+async def test_baseline_repeats_source_question(runtime):
+    await SCENARIOS["day2_repeat"].run(runtime, auto_answer)
+    with pytest.raises(AssertionError, match="Repeated source-contact"):
+        did_not_reask(runtime)
+
+
+@pytest.mark.baseline
 async def test_deliberate_learning_gap(runtime):
     await SCENARIOS["day1_screen"].run(runtime, auto_answer)
     assert runtime.memory.rows == {}

@@ -306,6 +306,11 @@ async def test_firm_isolation_and_prompt_inputs(runtime):
     assert "private memory" in system and "other firm secret" not in system
     assert "EBITDA above $12" in system and "EBITDA above $30" not in system
     assert DEAL_A not in system
+    model_event = next(
+        event for event in runtime.runs.rows[result["run_id"]].trace if event["kind"] == "model"
+    )
+    assert model_event["input_messages"][0]["content"] == system
+    assert "other firm secret" not in json.dumps(model_event["input_messages"])
     result_b = await start(
         runtime,
         "cim_screener",

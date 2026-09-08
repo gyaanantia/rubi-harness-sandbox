@@ -1,27 +1,33 @@
-# Rubi harness sandbox
+# Rubi harness challenge
 
-Three agents process invented deals: a CIM screener, a teaser intake agent,
-and an unattended CRM hygiene agent. They share a gateway but do not learn
-from each other's human decisions. Run the screener today and intake tomorrow:
-the banker question comes back. That missing feedback path is the exercise.
+Build an MVP that helps agents learn from human responses to `request_input`.
+Today, answers are kept in the run record but never reused. A later run of the
+same agent, or another agent working on the same deal, asks the same question
+again.
 
-A model calls tools through an ordered middleware stack. A gated call creates
-pending-input rows and raises an exception. The caller returns the cards;
-answering all cards starts a fresh graph invocation on the same checkpoint
-thread. Decisions return as tool messages, then execution continues.
+Your loop should store useful feedback in a structured form and feed it into
+context an agent can read: memory, skills, or its system prompt. Decide which
+feedback to learn from, where it applies, and how to measure its effect. The
+mechanism should support different agents and use cases; deal screening is the
+worked example.
 
-Tool arguments are validated before an approval card is created. Invalid
-arguments count toward the existing retry cap without asking for approval.
+**Spend no more than 10 hours.** Incomplete work with a clear explanation of
+what remains is welcome. Read the [full challenge brief](CHALLENGE.md) for the
+design questions and assessment criteria.
 
-The human decision lives outside graph execution because a person can answer
-later, after the original invocation has unwound. This uses neither a graph
-interrupt nor a waiting model call. Everything lives in one local process's
-memory. OpenAI is the only external runtime connection; the fake model needs
-none. This repository was implemented independently with public dependencies.
+## What to submit
 
-## Run it
+1. **A planning artifact:** the options you considered, your chosen design,
+   scope rules, tradeoffs, and how you would evaluate improvement.
+2. **A working MVP:** code and before/after evidence showing how feedback
+   changes a later run. Explain any incomplete work and next steps.
+3. **A walkthrough:** prepare a 15–20 minute design explanation and live demo,
+   followed by discussion in a roughly 45-minute session.
+
+## Get started
 
 Requires Python 3.12, [uv](https://docs.astral.sh/uv/), and macOS or Linux.
+From your clone of this repository:
 
 ```sh
 uv sync --locked
@@ -29,156 +35,137 @@ cp .env.example .env
 uv run sandbox run day1_screen --fake
 ```
 
-Keep that terminal running. Cards print their ids, options, context, rationale
-and deadline. In another terminal, in this repository:
+The scripted fake works without an API key. Keep this terminal running. It
+prints two questions with pending-input ids. In a second terminal, answer
+using the ids shown:
 
 ```sh
 uv run sandbox answer <banker-pending-id> contact-a-1
 uv run sandbox answer <screening-pending-id> override
-# The first terminal now prints two approval cards. Answer both:
+```
+
+The first terminal then prints two write-approval cards. Answer both and
+inspect the completed run:
+
+```sh
 uv run sandbox answer <write-pending-id> approve
 uv run sandbox answer <status-pending-id> approve
 uv run sandbox inspect <run-id>
 ```
 
-`reject` and `cancel` decline a card. For a free-text card use
-`sandbox answer <id> 'your answer' --other`. Multi-select cards take comma-separated
-ids. To modify an approval, use a complete JSON response:
+Use `reject` or `cancel` to decline a card. `inspect` shows the run, trace,
+pending inputs, and synthetic CRM state. Ctrl+C ends the session and clears
+its state. Stop the current session before starting another.
 
-```sh
-uv run sandbox answer <id> '{"action":"modify","args":{"deal_id":"10000000-0000-4000-8000-000000000001","field":"geography","value":"North America"}}' --json-response
-```
+For a real model, add the supplied `OPENAI_API_KEY` to `.env`, set
+`SANDBOX_FAKE_MODEL=0`, and omit `--fake`. `SANDBOX_MODEL` selects the model.
+Answer the option ids actually printed; wording, batching, and tool order may
+vary. Review each proposed write before approving it.
 
-The local Unix socket is private to your OS user. There is one session at a
-time. `inspect` includes run status, trace, pending rows and the gateway's write
-snapshot. Ctrl+C stops the process and discards all state. Run ids from a stopped
-session cannot be answered. A second `run` refuses to replace an active session.
+## Reproduce the problem
 
-For a real model, put the dedicated sandbox key in `.env` and omit `--fake`.
-`SANDBOX_FAKE_MODEL=1` makes the CLI use the fake by default. All model selection
-comes from `SANDBOX_MODEL`; there is no hard-coded fallback.
-
-## Scenarios and replay
-
-| Scenario | What to look for |
+| Scenario | Behavior |
 | --- | --- |
-| `day1_screen` | Three banker options plus kill/override in one batch, then gated writes |
-| `day2_repeat` | Screener, intake, then screener on the same deal; source questions repeat |
-| `unattended` | A write expires on each open deal; a separate source ask defaults to skip |
-| `sync_failure` | One failed write recovers after retry; two raised failures cap the third attempt |
+| `day1_screen` | Choose a banker and kill/override a screening failure, then approve writes |
+| `day2_repeat` | Run screener → intake → screener on the same deal; the banker question repeats |
+| `unattended` | Unanswered write approvals expire; safe choice defaults resolve without a human |
+| `sync_failure` | Recover from a failed write and demonstrate the retry cap |
 
-The unattended scenario advances the sweep clock past the deadline without
-sleeping. Its default answers have `decided_by_user_id=None` and never write a
-guessed banker. An approval gate has no safe default.
+Save the starting behavior:
 
 ```sh
-uv run python -m eval.replay day1_screen --n 5 --fake
-uv run python -m eval.replay day2_repeat --n 5 --fake
-uv run python -m eval.replay unattended --n 5 --fake
-uv run python -m eval.replay sync_failure --n 5 --fake
+uv run python -m eval.replay day2_repeat --n 1 --fake --output-dir replay-output/before
 ```
 
-Replay auto-answers cards from a small answer table, counts asks and writes,
-and checks the results. `day2_repeat` deliberately prints red FAIL rows and
-exits 1 because `did_not_reask()` fails. The other scenarios should pass.
-Replay also fails if a proposed status contradicts the kill/override answer;
-its scripted approval of a card is not evidence that the model chose correctly.
-Remove `--fake` to observe real-model variation. Each replay iteration gets
-fresh stores; the runs *within* one iteration share them.
+**This command is expected to exit 1:** `did_not_reask()` detects the repeated
+banker question. It still writes a JSON report. The other scenarios should pass.
 
-The fake is a scripted policy over visible messages. It uses the same graph,
-middleware and tool bodies as the real model. Its choices are deterministic;
-it does not emulate arbitrary prompt edits. Use real-model replay to evaluate
-prompt changes, and extend the fake for new scripted behaviors.
+`day2_repeat` includes all three runs in one process, sharing the stores.
+Each replay iteration starts fresh. Separate CLI processes do not share memory.
 
-## Harness map and levers
+## Demonstrate your improvement
 
-| Layer / lever | File | Consumer |
-| --- | --- | --- |
-| Definition, versions, allowlist, tool modes | `harness/store/definitions.py`, `seed/agents/` | Agent builder, authorization and gate |
-| Platform bindings | `scenarios/common.py`, `harness/store/runs.py` | Middleware context; not injected into model messages |
-| Prompt composition | `harness/prompt.py` | Foundation → memory → agent instructions → skills |
-| Skills and firm criteria | `seed/skills/`, `harness/store/skills.py` | One skill section per attachment, scoped to firm |
-| Tool metadata | `harness/registry.py`, `harness/tools.py` | Discovery, authorization and approval |
-| Middleware ordering | `harness/middleware/__init__.py` | Auth → error recovery → gate → empty guards slot → trace |
-| Pause and decisions | `harness/middleware/approval_gate.py`, `harness/request_input.py` | Sibling batching and decision application |
-| Input lifetime | `harness/store/pending_inputs.py` | Human responses and expiry sweep; default TTL is 72 hours |
-| Execution | `harness/runtime.py` | Build, run, resume, in-memory checkpoints |
-| Memory | `harness/store/memory.py` | Prompt search keyed by firm, user and optional deal |
-| Preferences | `harness/store/preferences.py` | An available firm/agent/user store; no automatic consumer yet |
-| Backend stand-in | `harness/store/gateway.py`, `seed/` | Synthetic documents, contacts, field validation, failure injection |
-| Feedback and measurement | `harness/middleware/trace.py`, `eval/` | Run trace, replay and repeat-question assertion |
+After implementing the loop, run the same scenario with
+`--output-dir replay-output/after`. Use `--n 5` to repeat an experiment.
+Reports contain model input messages and responses, human decisions, tool calls,
+run status, and the final CRM state. `replay-output/` is gitignored; include
+relevant excerpts with your submission.
 
-Pass `ttl=timedelta(...)` to `bootstrap()` to change input lifetime in experiments.
-Definitions append versions; a paused run keeps the definition it started with.
-Firm B has a different screening ceiling, making accidental cross-firm prompt
-or data access visible. Contact ids are only valid for their own deal.
+Show that the repeated-question check passes because applicable feedback was
+reused. Explain what reached the model and how it affected the next run. Keep
+required write approvals and firm isolation intact, and show a case where
+feedback should not be reused.
 
-## The asks
+Replay answers questions using the policy in `scenarios/common.py` and
+automatically approves write cards against the synthetic CRM. Check proposed
+arguments and resulting values when assessing correctness.
 
-The three representative decision shapes are: pick an introducing banker when
-the CRM accepts one contact; kill or override a screening hard fail; and retry,
-exclude or remap a failed CRM write. A write approval is a separate card.
-These are production-shaped mechanics with synthetic firms, people and deals;
-no customer records or production counts are included.
+The fake uses the real graph, middleware, and tools, but follows a scripted
+policy. It does not interpret arbitrary changes to memory, skills, or prompts.
+You may extend it or add a test model to exercise your mechanism. Explain what
+it simulates; changing the script alone does not demonstrate learning.
 
-`rationale` is the model's last assistant text. It is not a person's explanation
-of their choice. A choose answer is returned as JSON without running the tool
-body. An approve decision runs the tool; modify replaces its arguments; reject
-or cancel produces an error tool message. Unknown decisions reject.
+When API access permits, also capture a live-model run:
 
-Error recovery counts raised exceptions per tool in a run. After two consecutive
-errors, another call receives terminal `REJECTED` before a pending card can be
-registered. A successful result resets that tool's count. The model reports the
-failure; the run continues. A tool that returns an error *string* does not raise
-an exception, so it does not increment the count.
+```sh
+uv run python -m eval.replay day2_repeat --n 1 --output-dir replay-output/live
+```
 
-Provider errors fail the run without retrying. A truncated, filtered, malformed
-or empty model response also fails; it must not look like a completed task.
-The trace preserves response metadata and token usage for diagnosis.
+For replay, `--fake` selects the fake; omitting it selects the real model,
+regardless of `SANDBOX_FAKE_MODEL`. Clearly identify which evidence uses a fake
+and which uses a real model, and describe any validation you could not complete.
 
-## Deliberately missing
+## Implementation scope
 
-There is no cross-run read of pending inputs, no automatic extraction from tool
-messages into memory, no automatic preference update, and no UI for capturing
-a person's reason. The guards file is an empty slot. Apart from replay and the
-mechanics regression suite, there is no evaluation framework. These gaps are
-intentional; the baseline must reproduce repeat questions.
+The sandbox's backend consists of in-memory Python stores. Feedback surviving
+across runs within one process is sufficient for the MVP. A database,
+deployment, and persistence across restarts are not required.
 
-## Exercise
+Memory currently uses firm, user, and optional deal keys. Matching entries are
+included in the prompt, and agents in the same scope share them. You may extend
+these scope rules or choose a different model-readable destination.
 
-**Pending the final take-home brief.** The exercise will be inserted verbatim
-when supplied. Meanwhile, reproduce the repeat with `day2_repeat` and inspect
-where human decisions stop flowing back into subsequent runs.
+A gated tool call creates pending-input records and stops the run. Answering
+all cards starts a fresh invocation on the same checkpoint thread, with the
+decisions returned as tool messages. Preserve this pause/resume behavior.
 
-## Model, key and budget
+The learning path is deliberately missing: nothing reads decisions across
+runs, extracts them into memory, or updates preferences. The stored `rationale`
+is the model's text, not the human's explanation. There is no input for a
+human's reason, and the guards middleware is an empty slot. Decide which gaps
+your MVP needs to address.
 
-The default model id appears in `.env.example`. Its published standard text
-rates are $0.05 per million input tokens and $0.40 per million output tokens
-([model pricing](https://developers.openai.com/api/docs/models/gpt-5-nano)).
-For example, 20,000 input and 5,000 output tokens cost about $0.003. Reasoning
-tokens count toward output, and total run costs depend on every model call.
+## Find the relevant code
 
-Only use a dedicated sandbox project key. Never use a production credential.
-The repository does not include a key or claim that a project cap is configured.
-Before distributing access, the owner must set a monthly amount and enable
-**Enforce a hard limit** in project settings, confirm it is active, then share
-the key through an expiring password-manager link. An alert alone does not cap
-spending. Enforcement may lag slightly
-([spend limits](https://developers.openai.com/api/docs/guides/spend-limits)).
-Revoke the candidate's key when the exercise ends.
+| Area | Files |
+| --- | --- |
+| Agent instructions, tools, and versions | `seed/agents/`, `harness/store/definitions.py` |
+| Prompt composition | `harness/prompt.py` |
+| Memory and preferences | `harness/store/memory.py`, `harness/store/preferences.py` |
+| Skills and firm criteria | `seed/skills/`, `harness/store/skills.py` |
+| Human-input schema and decisions | `harness/request_input.py`, `harness/store/pending_inputs.py` |
+| Approval, authorization, recovery, and guards | `harness/middleware/` |
+| Execution and resume | `harness/runtime.py` |
+| Tool definitions and synthetic CRM | `harness/tools.py`, `harness/store/gateway.py` |
+| Scenario setup and replay answers | `scenarios/`, `scenarios/common.py` |
+| Assertions and reports | `eval/`, `harness/middleware/trace.py` |
+| Scripted model | `harness/fake_model.py` |
 
-Runtime calls disable external tracing even if the parent environment enables
-it. The tracing library is a transitive framework dependency; no tracing
-service is configured. The fake and tests make no model requests.
-
-## Checks
+## Run the checks
 
 ```sh
 uv run ruff check .
 uv run ruff format --check .
-uv run pytest -q
+uv run pytest -q -m "not baseline"
+uv run pytest -q -m baseline
 ```
 
-CI runs these checks and the deterministic scenarios without a key. The
-repeat-question test asserts that the baseline failure remains observable.
+The `baseline` tests document the starting defect: repeated questions, empty
+memory/preferences, and a failed repeat replay. Replace those expectations
+with tests of your implemented behavior. The other group covers harness
+behavior, including approval, isolation, pause/resume, and error recovery.
+
+The final CI step, `Verify the intentional repeat-question failure`, also
+expects the starting defect. Replace it with a successful replay check once
+your learning mechanism is exercised by the test model. Keep the remaining
+scenario checks and explain any necessary changes.

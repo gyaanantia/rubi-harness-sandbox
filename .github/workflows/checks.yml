@@ -13,7 +13,10 @@ jobs:
       - run: uv sync --locked --python 3.12
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run pytest -q
+      - name: Harness regression tests
+        run: uv run pytest -q -m "not baseline"
+      - name: Starting-point expectations (replace when implementing learning)
+        run: uv run pytest -q -m baseline
       - run: uv run python -m eval.replay day1_screen --n 5 --fake
       - run: uv run python -m eval.replay unattended --n 5 --fake
       - run: uv run python -m eval.replay sync_failure --n 5 --fake
