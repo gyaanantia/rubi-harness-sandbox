@@ -160,6 +160,11 @@ async def test_retry_cap_precedes_gate_and_run_continues(runtime):
 
 
 async def test_error_string_does_not_count_as_raised_exception(runtime):
+    from harness import registry
+    from seed.crm import SECTIONS
+
+    schema = registry.get("get_deal_info").tool_call_schema.model_json_schema()
+    assert schema["properties"]["sections"]["items"]["enum"] == SECTIONS
     result, _ = await scripted(
         runtime, [tool_call("get_deal_info", deal_id=DEAL_A, sections=["wrong"])]
     )

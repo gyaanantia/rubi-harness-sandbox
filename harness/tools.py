@@ -1,9 +1,13 @@
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from langchain.tools import ToolRuntime
+from pydantic import WithJsonSchema
 
 from harness.registry import tool_def
+from seed.crm import SECTIONS
+
+SectionName = Annotated[str, WithJsonSchema({"type": "string", "enum": SECTIONS})]
 
 
 @tool_def("read_document")
@@ -14,7 +18,9 @@ async def read_document(document_id: UUID, runtime: ToolRuntime[dict]) -> str:
 
 
 @tool_def("get_deal_info")
-async def get_deal_info(deal_id: UUID, sections: list[str], runtime: ToolRuntime[dict]) -> Any:
+async def get_deal_info(
+    deal_id: UUID, sections: list[SectionName], runtime: ToolRuntime[dict]
+) -> Any:
     """Read deal sections: overview, financials, contacts, documents, crm, screening.
 
     An invalid section returns an error string naming valid sections.
