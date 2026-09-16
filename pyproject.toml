@@ -35,7 +35,6 @@ packages = ["harness", "seed", "scenarios", "eval"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-markers = ["baseline: documents the initial learning gap; replace when implementing the loop"]
 
 [tool.ruff]
 target-version = "py312"

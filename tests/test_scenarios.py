@@ -15,18 +15,31 @@ async def test_scenarios(runtime, name):
     scenario_completed(runtime, name)
 
 
-@pytest.mark.baseline
-async def test_baseline_repeats_source_question(runtime):
-    await SCENARIOS["day2_repeat"].run(runtime, auto_answer)
-    with pytest.raises(AssertionError, match="Repeated source-contact"):
-        did_not_reask(runtime)
-
-
-@pytest.mark.baseline
-async def test_deliberate_learning_gap(runtime):
+async def test_day1_answers_become_memory_a_later_run_can_read(runtime):
     await SCENARIOS["day1_screen"].run(runtime, auto_answer)
-    assert runtime.memory.rows == {}
-    assert runtime.preferences.rows == {}
+    lines = runtime.memory.search("firm-a", "user-a2", DEAL_A)
+    assert any(line.startswith('Decision for this deal on "Which banker') for line in lines)
+    assert any(line.startswith('Context for this deal on "Hard fail') for line in lines)
+    assert all(DEAL_A not in line for line in lines)
+
+
+async def test_day2_repeat_stops_reasking_the_answered_question(runtime):
+    await SCENARIOS["day2_repeat"].run(runtime, auto_answer)
+    did_not_reask(runtime)
+    rows = runtime.pending_inputs.rows.values()
+    banker = [row for row in rows if row.choose and row.choose["option_type"] == "entity"]
+    assert len(rows) == 8 and len(banker) == 1
+    assert len(runtime.gateway.writes) == 5
+
+
+async def test_day2_remember_skips_the_flagged_question_on_the_second_run(runtime):
+    await SCENARIOS["day2_remember"].run(runtime, auto_answer)
+    first, second = (runtime.pending_inputs.for_run(run.id) for run in runtime.runs.rows.values())
+    assert len(first) == 4
+    assert [row.tool_name for row in second] == ["write_crm_field", "set_deal_status"]
+    assert all(row.kind == "approve" for row in second)
+    status = next(row for row in second if row.tool_name == "set_deal_status")
+    assert status.tool_args["status"] == "open"  # the remembered override, still approved by hand
 
 
 async def test_replay_rejects_status_that_contradicts_screening_answer(runtime):
