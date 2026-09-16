@@ -225,5 +225,10 @@ in memory. Test: `tests/test_learning.py::test_a_newer_answer_supersedes_the_old
   learning step refuses to *learn* from a recovery ask, but the gate does not refuse to
   *answer* one. No shipped scenario reaches it (`auto_answer` picks `retry` before `map`) and
   no write escapes its approval, so nothing is unsafe, but it is wrong and it is the first
-  thing to fix. PLAN §8 already names the right fix: a model-supplied hint on the ask, which
-  the harness treats as a hint rather than a verdict.
+  thing to fix. The plan does not cover this case: §3 rules out reusing the *retry/exclude/map*
+  answer, but the replacement question is an entity ask, which §3 treats as reusable, and
+  nothing anticipated that a replacement carries the same signature as the original. §8's
+  `learn`-hint extension is aimed at the learning step's recovery heuristic, not at the gate,
+  though the same hint would also be the cleanest way to close this. The narrower fix is to
+  refuse reuse at the gate when the immediately preceding tool batch contained an error, which
+  is the rule `learning.is_recovery` already applies after the fact.
