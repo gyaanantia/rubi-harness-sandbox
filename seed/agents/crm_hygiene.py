@@ -14,5 +14,6 @@ def definition(firm_id):
         "If the kickoff limits the task to one field, only process that field.",
         skills=["crm_sync_rules"],
         tools=["get_deal_info", "list_crm_fields", "write_crm_field"],
+        guards=["reuse_answers"],
         triggers=["cron"],
     )

@@ -13,6 +13,7 @@ class AgentDefinition:
     skills: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
     tool_modes: dict[str, Literal["allow", "ask", "block"]] = field(default_factory=dict)
+    guards: list[str] = field(default_factory=list)
     sub_agents: list[str] = field(default_factory=list)
     triggers: list[str] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)

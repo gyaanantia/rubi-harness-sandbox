@@ -23,5 +23,6 @@ def definition(firm_id):
             "set_deal_status",
         ],
         tool_modes={"write_crm_field": "ask", "set_deal_status": "ask"},
+        guards=["reuse_answers"],
         triggers=["document_received"],
     )
