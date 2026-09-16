@@ -21,6 +21,10 @@ def choice_options(*names):
     return [{"id": name, "label": name.title()} for name in names]
 
 
+BANKER_PROMPT = "Which banker should be the deal source?"
+SCREENING_PROMPT = "Hard fail: kill or override?"
+
+
 class ScriptedModel(BaseChatModel):
     @property
     def _llm_type(self):
@@ -70,20 +74,24 @@ class ScriptedModel(BaseChatModel):
         banker_asks = [
             (call, message) for call, message in asks if call["args"].get("option_type") == "entity"
         ]
+        screening_asks = [
+            (call, message) for call, message in asks if call["args"]["prompt"] == SCREENING_PROMPT
+        ]
         is_screener = "# Agent: CIM Screener" in system
-        if not banker_asks:
-            questions = [self.banker_question(contacts)]
+        remembered_banker = self.remembered(system, BANKER_PROMPT)
+        remembered_screening = self.remembered(system, SCREENING_PROMPT, r"kill|override")
+        questions = []
+        if not banker_asks and not remembered_banker:
+            questions.append(self.banker_question(contacts))
+        if is_screener and not screening_asks and not remembered_screening:
             document = next(
                 message.content for call, message in results if call["name"] == "read_document"
             )
-            ceiling = (
-                float(re.search(r"EBITDA above \$(\d+)", system).group(1)) if is_screener else 0
-            )
+            ceiling = float(re.search(r"EBITDA above \$(\d+)", system).group(1))
             ebitda = float(re.search(r"EBITDA: \$(\d+)", document).group(1))
-            if is_screener and ebitda > ceiling:
-                questions.append(
-                    question("Hard fail: kill or override?", choice_options("kill", "override"))
-                )
+            if ebitda > ceiling:
+                questions.append(question(SCREENING_PROMPT, choice_options("kill", "override")))
+        if questions:
             return AIMessage(
                 content="The document names several bankers; screening is complete.",
                 tool_calls=questions,
@@ -117,12 +125,19 @@ class ScriptedModel(BaseChatModel):
                     tool_calls=[tool_call("write_crm_field", **failed_call["args"])],
                 )
             if selection == "map":
-                if len(banker_asks) <= len(recovery):
+                # A remembered contact leaves banker_asks empty, so count asks after the failure.
+                order = [call["id"] for call, message in asks]
+                replacements = [
+                    (call, message)
+                    for call, message in banker_asks
+                    if order.index(call["id"]) > order.index(recovery[-1][0]["id"])
+                ]
+                if not replacements:
                     return AIMessage(
                         content="Select a replacement contact.",
                         tool_calls=[self.banker_question(contacts)],
                     )
-                replacement = self.selected(banker_asks[-1][1])
+                replacement = self.selected(replacements[-1][1])
                 if replacement:
                     return AIMessage(
                         content="Writing the new mapping.",
@@ -134,7 +149,7 @@ class ScriptedModel(BaseChatModel):
                     )
             return AIMessage(content="The failed field was excluded.")
         next_calls = []
-        selected = self.selected(banker_asks[-1][1])
+        selected = self.selected(banker_asks[-1][1]) if banker_asks else remembered_banker
         if not writes and selected and selected != "skip":
             next_calls.append(
                 tool_call(
@@ -146,18 +161,21 @@ class ScriptedModel(BaseChatModel):
             )
         status_results = [message for call, message in results if call["name"] == "set_deal_status"]
         if is_screener and not status_results:
-            screening = [
-                message
-                for call, message in asks
-                if call["args"]["prompt"] == "Hard fail: kill or override?"
-            ]
-            decision = self.selected(screening[-1]) if screening else "qualified"
+            if screening_asks:
+                decision = self.selected(screening_asks[-1][1])
+            else:
+                decision = remembered_screening or "qualified"
             if decision:
                 status = {"override": "open", "kill": "kill"}.get(decision, "qualified")
                 next_calls.append(tool_call("set_deal_status", deal_id=deal_id, status=status))
         if next_calls:
             return AIMessage(content="Applying the selected changes.", tool_calls=next_calls)
         return AIMessage(content="Finished. Skipped fields were left unchanged.")
+
+    def remembered(self, system, prompt, pattern=r"\S+"):
+        """Act on a settled Decision line; a Context line still needs the question asked."""
+        line = re.search(rf'Decision for this deal on "{re.escape(prompt)}": ({pattern})', system)
+        return line.group(1) if line else None
 
     def selected(self, message):
         if message.status == "error":
@@ -166,7 +184,7 @@ class ScriptedModel(BaseChatModel):
 
     def banker_question(self, contacts):
         return question(
-            "Which banker should be the deal source?",
+            BANKER_PROMPT,
             [
                 {"id": contact["id"], "label": contact["name"], "entity_id": contact["id"]}
                 for contact in contacts

@@ -5,6 +5,9 @@ approves the action; never ask for that approval in chat. Use request_input
 for choices. Batch independent questions in one assistant turn.
 After a rejected or skipped field choice, drop that field and continue.
 A terminal REJECTED retry limit means report the failure without retrying.
+Memory: a person already decided the lines marked Decision. Do not ask
+those again; act on them, still using gated tools for any write. Lines
+marked Context are background; ask before acting on them.
 Do not invent ids. Never act on another firm's records.
 """
 
