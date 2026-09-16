@@ -8,14 +8,16 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langsmith import tracing_context
 
-from harness import prompt, registry
+from harness import learning, prompt, registry
 from harness.middleware import build_middleware
 from harness.middleware.approval_gate import GateAwaitingApproval
 from harness.middleware.trace import record
 from harness.store.definitions import DefinitionStore
+from harness.store.feedback import FeedbackStore
 from harness.store.memory import MemoryStore
 from harness.store.pending_inputs import DEFAULT_TTL, PendingInputStore
 from harness.store.preferences import PreferenceStore
+from harness.store.proposals import ProposalStore
 from harness.store.runs import Run, RunStore
 from harness.store.skills import SkillStore
 
@@ -56,6 +58,8 @@ class Runtime:
         self.skills = SkillStore()
         self.memory = MemoryStore()
         self.preferences = PreferenceStore()
+        self.feedback = FeedbackStore()
+        self.proposals = ProposalStore()
         self.checkpointer = InMemorySaver()
         self.contexts = {}
         self.graphs = {}
@@ -88,6 +92,8 @@ class Runtime:
             "pending_inputs": self.pending_inputs,
             "memory": self.memory,
             "preferences": self.preferences,
+            "feedback": self.feedback,
+            "proposals": self.proposals,
             "skills": self.skills,
             "checkpointer": self.checkpointer,
             "ttl": self.ttl,
@@ -116,6 +122,7 @@ class Runtime:
             record(ctx, "run", status="failed", error=type(error).__name__)
             return {"run_id": run.id, "paused": False, "error": str(error)}
         run.status = "completed"
+        learning.absorb(ctx)
         return {"run_id": run.id, "paused": False, "output": result["messages"][-1].text}
 
     def pending(self, run_id):
