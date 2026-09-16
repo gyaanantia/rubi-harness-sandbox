@@ -21,7 +21,7 @@ async def start(
     )
 
 
-async def auto_answer(runtime, result):
+async def auto_answer(runtime, result, reach_by_prompt=None):
     while result.get("paused"):
         run = runtime.runs.rows[result["run_id"]]
         for row in runtime.pending(run.id):
@@ -40,6 +40,10 @@ async def auto_answer(runtime, result):
                 if row.choose["mode"] == "multi" and selected:
                     arguments["selected"] = [selected]
                 response = {"action": "choose", "args": arguments}
+                reach = (reach_by_prompt or {}).get(row.choose["prompt"])
+                if reach:
+                    response["remember"] = reach
+                    response["reason"] = "Replay policy remembers this answer"
             runtime.pending_inputs.respond(
                 row.id, response, firm_id=run.firm_id, user_id=run.user_id
             )
