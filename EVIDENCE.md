@@ -1,8 +1,7 @@
 # Evidence: learning from `request_input` answers
 
-**Every number on this page is from the scripted fake model** (`--fake`), which is
-deterministic and free. It is labelled as such throughout. **The live-model run is still
-pending an API key** — see "What is not proven" at the end.
+**Sections 1–8 are from the scripted fake model** (`--fake`), which is deterministic and
+free. **Section 9 is a real model** (`gpt-4.1-mini`, one iteration). Every table says which.
 
 Reproduce:
 
@@ -204,17 +203,59 @@ in memory. Test: `tests/test_learning.py::test_a_newer_answer_supersedes_the_old
 | `eval.replay unattended --n 5 --fake` | exit 0 — 4 asks, 0 writes |
 | `eval.replay sync_failure --n 5 --fake` | exit 0 — 12 asks, 3 writes |
 
+## 9. The live model
+
+**Real model, not the fake.** `SANDBOX_MODEL=gpt-4.1-mini`, one iteration:
+
+```sh
+uv run python -m eval.replay day2_repeat --n 1 --output-dir replay-output/live41
+```
+
+| Metric | Fake | **Live** | Baseline |
+| --- | --- | --- | --- |
+| Cards | 8 | **7** | 10 |
+| Source-contact question | 1 | **1** | 3 |
+| CRM writes | 5 | 5 | 5 |
+| `reused` | 0 | **0** | — |
+| `did_not_reask` | PASS | **PASS** | FAIL |
+| Deal id in any system prompt | no | **no** | no |
+
+Cards per run: `cim_screener` 4 → `teaser_intake` **1** → `cim_screener` **2**.
+
+The model wrote its own questions, nothing like the fake's canned strings, and the loop did
+not care:
+
+> `Decision for this deal on "Multiple bankers introduced the deal: Avery Lark, Remy Finch, Tessa Wren. Please select one banker to sync into the deal_source_individual CRM field.": contact-a-1 (Avery Lark). Chosen by user-a1 on 2026-09-16. Do not ask this again; act on it, using gated tools for any write.`
+
+That is the point of keying entity signatures on record ids rather than wording (PLAN 10.1):
+the classifier still filed it as `fact`/reach `deal`, and runs 2 and 3 acted on it. Run 2 is a
+*different agent* on the same deal, with a real model, not asking a question a person already
+answered.
+
+**One honest divergence from the fake.** Run 3 also skipped the hard-fail question, which the
+fake asks again. Its memory line says `Ask again before acting on it.` — and the model acted
+on it anyway. Nothing was unsafe (the status write still stopped at its approval card, and the
+proposed `open` still matched the stored `override`), but it is a clean demonstration of
+PLAN 5.6's line: **a rule that reaches the model is prose, and prose can be ignored.** If
+"ask again" has to hold, it belongs in middleware as a guard, not in a sentence. The `once`
+reach is currently prose only. That is the most useful thing the live run taught us.
+
+`reused` is 0 live as well: the model never re-asked a matching question, so the guard never
+had to fire. It stays the insurance policy, exercised by the `SequenceModel` test in §4.
+
+**`gpt-5-nano` does not complete this scenario**, for a reason that predates this branch:
+`harness/runtime.py:real_model()` sets `max_tokens=4096`, and a reasoning model spends that
+budget on reasoning tokens, so `Trace` raises `IncompleteModelResponse
+(finish_reason=length)`. Report: `replay-output/live/`. Before it died it had already shown
+run 2 reading the memory and skipping the banker question. Fixing it means raising the cap or
+using `max_completion_tokens` for reasoning models — a pre-existing harness change, out of
+scope for this branch.
+
 ## What is not proven
 
-- **The live model.** Everything above is the fake. It simulates a model that reads its own
-  system prompt, treats a `Decision` line as settled and a `Context` line as background. It
-  reads the *same* rendered memory a real model reads, through `harness.prompt.compose`, with
-  no side channel into the stores — but it matches the line literally, so it demonstrates the
-  plumbing and the scope rules, not comprehension. Whether a real model honours the line is a
-  live-model claim: `uv run python -m eval.replay day2_repeat --n 1 --output-dir
-  replay-output/live` once a key is available. Expect `reused` to become non-zero there if
-  the model asks anyway — that is the guard doing its job, and it is the more interesting
-  number.
+- **Breadth of the live run.** One model, one iteration, one scenario. `day2_remember`,
+  `sync_failure` and `unattended` have not been run live, and a real model's batching and
+  wording vary between runs, so the live card counts are not as rigid as the fake's.
 - **Paraphrase robustness.** Entity questions match on their record ids, so a reworded
   question about the same three bankers still matches. Text questions match on the normalised
   prompt plus option ids, so a genuinely reworded judgement question does not match and the
