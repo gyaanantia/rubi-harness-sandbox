@@ -12,11 +12,7 @@ from tests.conftest import SequenceModel
 
 
 @pytest.mark.parametrize(
-    "scenario,exit_code",
-    [
-        ("day1_screen", 0),
-        pytest.param("day2_repeat", 1, marks=pytest.mark.baseline),
-    ],
+    "scenario,exit_code", [("day1_screen", 0), ("day2_repeat", 0), ("day2_remember", 0)]
 )
 async def test_replay_exports_each_iteration(tmp_path, monkeypatch, scenario, exit_code):
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-key-never-include-in-reports")
@@ -32,8 +28,9 @@ async def test_replay_exports_each_iteration(tmp_path, monkeypatch, scenario, ex
         assert report["scenario"] == scenario and report["iteration"] == iteration
         assert report["model_mode"] == "fake"
         assert report["passed"] == (exit_code == 0)
-        if exit_code:
-            assert "Repeated source-contact" in report["error"]
+        # The fake acts on the memory lines, so no repeated card ever reaches the guard.
+        assert report["reused"] == 0 and report["proposals"] == []
+        assert [row["category"] for row in report["feedback"]][:2] == ["fact", "judgement"]
         assert report["asks"] == len(report["pending_inputs"])
         assert report["writes"] == len(report["gateway"]["writes"]) > 0
         events = [event for run in report["runs"] for event in run["trace"]]

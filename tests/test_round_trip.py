@@ -322,6 +322,80 @@ async def test_firm_isolation_and_prompt_inputs(runtime):
     assert len(result_b["pending"]) == 1
 
 
+def banker_question(*numbers):
+    return question(
+        "Which banker should be the deal source?",
+        [
+            {"id": f"contact-a-{n}", "label": f"Contact {n}", "entity_id": f"contact-a-{n}"}
+            for n in numbers
+        ],
+        option_type="entity",
+    )
+
+
+async def learn_the_source_contact(runtime):
+    result, _ = await scripted(runtime, [banker_question(1, 2, 3)])
+    row = result["pending"][0]
+    answer(runtime, row, {"action": "choose", "args": {"selected": "contact-a-1"}})
+    await runtime.resume(row.run_id, firm_id="firm-a")
+
+
+async def test_a_learned_answer_skips_its_card_but_never_a_write_approval(runtime):
+    await learn_the_source_contact(runtime)
+    asked_once = len(runtime.pending_inputs.rows)
+    result, _ = await scripted(
+        runtime,
+        [
+            banker_question(1, 2, 3),
+            question("Approve the draft", [], kind="approve", action_summary="A draft"),
+            tool_call("write_crm_field", deal_id=DEAL_A, field="geography", value="North"),
+        ],
+    )
+    assert [row.tool_name for row in result["pending"]] == ["request_input", "write_crm_field"]
+    assert all(row.kind == "approve" for row in result["pending"])
+    assert len(runtime.pending_inputs.rows) == asked_once + 2  # no card for the banker question
+    reused = [
+        event
+        for event in runtime.runs.rows[result["run_id"]].trace
+        if event["kind"] == "decision" and event["status"] == "reused"
+    ]
+    assert len(reused) == 1 and reused[0]["args"] == {"selected": "contact-a-1"}
+    assert reused[0]["feedback_id"] and not runtime.gateway.writes
+
+
+async def test_reuse_needs_the_definition_to_declare_the_guard(runtime):
+    await learn_the_source_contact(runtime)
+    definition = runtime.definitions.get("firm-a", "cim_screener")
+    definition.guards = []
+    definition.version = 2
+    runtime.definitions.append(definition)
+    result, _ = await scripted(runtime, [banker_question(1, 2, 3)])
+    assert len(result["pending"]) == 1
+
+
+async def test_a_changed_option_set_is_a_different_question(runtime):
+    await learn_the_source_contact(runtime)
+    result, _ = await scripted(runtime, [banker_question(1, 2, 3, 4)])
+    assert len(result["pending"]) == 1  # a fourth banker means the agent asks again
+
+
+async def test_reach_is_rejected_where_there_is_no_choice_to_learn(runtime):
+    result, _ = await scripted(
+        runtime,
+        [
+            tool_call("write_crm_field", deal_id=DEAL_A, field="geography", value="North"),
+            question("Pick", choice_options("one", "two")),
+        ],
+    )
+    approval = next(row for row in result["pending"] if row.kind == "approve")
+    choice = next(row for row in result["pending"] if row.kind == "choose")
+    with pytest.raises(ValueError, match="Reach cannot be set on an approval"):
+        answer(runtime, approval, {"action": "approve", "remember": "deal"})
+    with pytest.raises(ValueError, match="Reach requires a choice"):
+        answer(runtime, choice, {"action": "reject", "remember": "deal"})
+    assert approval.status == "pending" and choice.status == "pending"
+
+
 def test_definition_append_is_immutable(runtime):
     original = runtime.definitions.get("firm-a", "cim_screener")
     original.version = 2

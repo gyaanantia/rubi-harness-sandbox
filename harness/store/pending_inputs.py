@@ -5,6 +5,7 @@ from typing import Literal
 from uuid import uuid4
 
 DEFAULT_TTL = timedelta(hours=72)
+REACHES = {"none", "deal", "firm"}
 
 
 def utc_now():
@@ -36,6 +37,18 @@ def validate_response(row: PendingInput, response: dict):
     if not isinstance(response, dict):
         raise ValueError("Response must be an object")
     action = response.get("action")
+    reason = response.get("reason")
+    if reason is not None and not isinstance(reason, str):
+        raise ValueError("Reason must be text")
+    remember = response.get("remember")
+    # Checked before the early returns, so a flag on an approval is refused, not ignored.
+    if remember is not None:
+        if row.kind == "approve":
+            raise ValueError("Reach cannot be set on an approval")
+        if action != "choose":
+            raise ValueError("Reach requires a choice")
+        if remember not in REACHES:
+            raise ValueError("Unknown reach")
     if action in {"cancel", "reject"}:
         return
     if row.kind == "approve":

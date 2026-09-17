@@ -70,6 +70,7 @@ class Session:
                 result = {
                     "run": run,
                     "pending_inputs": self.runtime.pending_inputs.for_run(run.id),
+                    "feedback": self.runtime.feedback.for_run(run.id),
                     "gateway": self.runtime.gateway.snapshot(),
                 }
             elif request["command"] == "answer":
@@ -95,6 +96,14 @@ class Session:
         await writer.wait_closed()
 
     def response(self, row, request):
+        response = self.choice(row, request)
+        # Attached whatever the card is; validate_response decides whether they are legal.
+        for name in ["remember", "reason"]:
+            if request.get(name):
+                response[name] = request[name]
+        return response
+
+    def choice(self, row, request):
         option = request["option"]
         if request.get("json_response"):
             return json.loads(option)
@@ -168,6 +177,8 @@ def main():
     answer_parser.add_argument("pending_id")
     answer_parser.add_argument("option")
     answer_parser.add_argument("--other", action="store_true")
+    answer_parser.add_argument("--remember", choices=["none", "deal", "firm"])
+    answer_parser.add_argument("--reason")
     answer_parser.add_argument("--json-response", action="store_true")
     inspect_parser = subparsers.add_parser("inspect")
     inspect_parser.add_argument("run_id")

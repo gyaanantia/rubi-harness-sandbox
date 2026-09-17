@@ -5,6 +5,7 @@ from langchain.agents.middleware import AgentMiddleware, hook_config
 from langchain_core.messages import AIMessage, ToolMessage
 
 from harness import registry
+from harness.middleware.guards import reusable_answer
 from harness.middleware.tool_auth import error_message, is_allowed
 from harness.middleware.trace import record
 from harness.store.pending_inputs import PendingInput, utc_now
@@ -25,6 +26,18 @@ def should_gate(ctx, name):
         return True
     mode = ctx["definition"].tool_modes.get(name)
     return mode == "ask" if mode else metadata["confirmation_required"]
+
+
+def reuse_hit(ctx, call, arguments):
+    """PLAN 10.6: the stored answer for this card, when the definition allows reuse.
+
+    Only a choose card is eligible, so an approval never reaches the feedback store.
+    """
+    if call["name"] != "request_input" or arguments.get("kind") != "choose":
+        return None
+    if "reuse_answers" not in ctx["definition"].guards:
+        return None
+    return reusable_answer(ctx, call)
 
 
 def validated_arguments(call):
@@ -56,7 +69,21 @@ class ApprovalGate(AgentMiddleware):
             return await self.apply_decision(request, handler, decision)
         if not should_gate(ctx, call["name"]):
             return await handler(request)
-        self.validate_card(call)
+        arguments = self.validate_card(call)
+        hit = reuse_hit(ctx, call, arguments)
+        if hit is not None:
+            answer, feedback_id = hit
+            record(
+                ctx,
+                "decision",
+                tool=call["name"],
+                args=answer,
+                status="reused",
+                feedback_id=feedback_id,
+            )
+            return ToolMessage(
+                content=json.dumps(answer), tool_call_id=call["id"], name=call["name"]
+            )
         run = ctx["run"]
         assistant = next(
             message
@@ -77,6 +104,9 @@ class ApprovalGate(AgentMiddleware):
             try:
                 arguments = self.validate_card(sibling)
             except (ValueError, TypeError):
+                continue
+            # A reusable sibling gets no card; the guard answers it when its own wrap runs.
+            if reuse_hit(ctx, sibling, arguments) is not None:
                 continue
             kind = (
                 arguments.get("kind", "approve")

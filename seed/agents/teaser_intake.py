@@ -12,5 +12,6 @@ def definition(firm_id):
         "Do nothing else. Drop the field if the user skips or rejects the choice.",
         skills=["crm_sync_rules"],
         tools=["read_document", "list_deal_contacts", "list_crm_fields", "write_crm_field"],
+        guards=["reuse_answers"],
         triggers=["document_received"],
     )

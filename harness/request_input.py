@@ -52,6 +52,7 @@ async def request_input(
     A choose decision bypasses this function's body.
     Approval of a draft only acknowledges that draft; it performs no write.
     The model's last assistant text supplies the card rationale.
-    This tool does not save preferences or teach another run the answer.
+    An answer a person marks reusable is stored and can appear in a later
+    run's memory; an identical question may be answered from that record.
     """
     return "Draft approved. No side effect was performed."
