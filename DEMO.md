@@ -36,16 +36,34 @@ git worktree remove /tmp/before          # afterwards
 **Terminal 1:**
 
 ```sh
-uv run sandbox run day2_repeat --fake
+uv run sandbox run day2_repeat --fake | tee /tmp/session.log
 ```
 
-It pauses and prints two cards with their pending ids. **Terminal 2**, using the ids on
-screen:
+It pauses and prints a JSON payload per card. **The id you need is each pending row's own
+`id`** — a UUID, printed *below* the options. Do not use the option ids (`contact-a-1`), the
+`tool_call_id` or the `run_id`; the options appear first in the JSON and are the easy thing to
+grab by mistake.
+
+The `tee` above is why: in **Terminal 2**, list just what you need.
 
 ```sh
-uv run sandbox answer <banker-id> contact-a-1
-uv run sandbox answer <hardfail-id> override
+grep -v '^Another terminal' /tmp/session.log \
+  | jq -r 'select(.paused) | .pending[] | "\(.id)  \(.kind)  \(.choose.prompt // .tool_name)"'
 ```
+
+```
+ffda1e83-1ae0-4738-a1f8-cb19a18d352a  choose  Which banker should be the deal source?
+ce5b3a80-342a-4a29-9806-d67f3d9f1c16  choose  Hard fail: kill or override?
+```
+
+Then answer, pasting the **pending id** first and the **option id** second:
+
+```sh
+uv run sandbox answer ffda1e83-1ae0-4738-a1f8-cb19a18d352a contact-a-1
+uv run sandbox answer ce5b3a80-342a-4a29-9806-d67f3d9f1c16 override
+```
+
+Re-run the `jq` line after each pause to get the next batch of ids.
 
 Then approve the two writes it proposes. What the room sees, run by run:
 
@@ -62,7 +80,15 @@ context, not as settled fact.*
 
 ## Act 2 — why it happened (4 min)
 
-Leave Terminal 1 running; it holds the state. In **Terminal 2**:
+Leave Terminal 1 running; it holds the state. `inspect` takes a **run id**, which is a
+different id again — list the three in order:
+
+```sh
+grep -v '^Another terminal' /tmp/session.log | jq -r 'select(.run_id) | .run_id' | awk '!seen[$0]++'
+```
+
+The first is `cim_screener`, the second `teaser_intake`, the third `cim_screener` again. In
+**Terminal 2**:
 
 ```sh
 uv run sandbox inspect <run-1-id> | jq -r '.feedback[] | "\(.category)/\(.reach)  [\(.status)]  \(.prompt)\n    answer = \(.answer)  by \(.user_id)\n    sig    = \(.signature)"'
@@ -113,7 +139,7 @@ uv run sandbox run day2_remember --fake
 Answer the hard-fail card **with a reach flag**, typed live:
 
 ```sh
-uv run sandbox answer <hardfail-id> override --remember deal --reason "Board cleared the size breach"
+uv run sandbox answer <pending-id-of-the-hard-fail-card> override --remember deal --reason "Board cleared the size breach"
 ```
 
 Approve the writes. The second run then creates **only the two write-approval cards** — both
@@ -122,7 +148,7 @@ questions are gone, because a person said this decision holds for the deal.
 Then show the flag being refused where it would be unsafe:
 
 ```sh
-uv run sandbox answer <a-write-approval-id> approve --remember deal
+uv run sandbox answer <pending-id-of-a-write-approval-card> approve --remember deal
 # {"error": "Reach cannot be set on an approval"}
 ```
 
@@ -178,7 +204,8 @@ two independent live runs are recorded there.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `A sandbox session is already running` | previous Terminal 1 still alive | Ctrl+C it |
+| `A sandbox session is already running` | previous Terminal 1 still alive | Ctrl+C it, or `rm -rf /tmp/rubi-harness-$(id -u)-*` if nothing is running |
+| `Pending input not found` / `KeyError` on answer | you pasted an option id, a `tool_call_id` or a `run_id` instead of the row's own `id` | use the `jq` list above |
 | `unrecognized arguments: --remember` | stale `cli.py` copy in the venv | `uv sync --reinstall-package rubi-harness-sandbox` |
 | `Set OPENAI_API_KEY ... or use --fake` | `.env` lost, or an exported key shadowing it | `env -u OPENAI_API_KEY ...` |
 | Live run dies with `finish_reason=length` | reasoning model vs `max_tokens=4096` | use `gpt-4.1-mini`, not `gpt-5-nano` |
