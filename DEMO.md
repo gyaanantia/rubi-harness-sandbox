@@ -14,7 +14,7 @@ and it is the thing the loop learns from.
 
 ```sh
 uv sync --reinstall-package rubi-harness-sandbox   # cli.py is force-included in the wheel
-uv run pytest -q                                   # 64 passed
+uv run pytest -q                                   # 65 passed
 ```
 
 Two terminals, both in the repo root. **Terminal 1** runs the agent; **Terminal 2** is the
@@ -172,10 +172,11 @@ This is the part of the design worth defending: deciding what **not** to absorb.
 ## Act 5 — a real model, not the scripted one (3 min)
 
 ```sh
-SANDBOX_MODEL=gpt-4.1-mini uv run python -m eval.replay day2_repeat --n 1 --output-dir replay-output/live
+env -u OPENAI_API_KEY SANDBOX_MODEL=gpt-4.1-mini uv run python -m eval.replay day2_repeat --n 1 --output-dir replay-output/live
 ```
 
-Expect a PASS with the source-contact question asked **once**. Card and write counts vary
+(`env -u` because `load_dotenv` never overrides a key already exported in the shell; a stale
+exported key fails with a 429 that looks like a dead account.) Expect a PASS with the source-contact question asked **once**. Card and write counts vary
 between runs — the model writes its own question wording, and the loop does not care,
 because entity signatures key on record ids. Show a line from the live report:
 
@@ -184,7 +185,7 @@ jq -r '.feedback[] | "\(.category)/\(.reach): \(.prompt)"' replay-output/live/da
 ```
 
 If you only have a minute, skip the live run and read the table in `EVIDENCE.md` §9 instead;
-two independent live runs are recorded there.
+a live run is recorded there, and `replay-output/live/` holds two more passing reports.
 
 ## The two honest bits to volunteer before anyone asks
 
@@ -194,11 +195,15 @@ two independent live runs are recorded there.
    the design's central line: *a rule that reaches the model is prose, and prose can be
    ignored. A rule that reaches middleware is a guard.* `deal` reach has a guard behind it.
    `once` reach does not. That is a gap, and the fix is to move it into middleware.
-2. **The guard can answer a replacement question after a failed write.** Choose `map` at the
-   retry card and the agent asks for a *different* contact — same prompt, same options, so
-   the same signature — and the guard answers it with the contact that just failed. No
-   scenario reaches it and no write escapes approval, but it is wrong. Fix: refuse reuse when
-   the preceding tool batch errored.
+2. **The guard could answer a replacement question after a failed write — found while
+   writing the evidence, fixed in PR #4.** Choose `map` at the retry card and the agent asks
+   for a *different* contact — same prompt, same options, so the same signature — and the
+   guard used to answer it with the contact that just failed. No scenario reached it and no
+   write escaped approval, but it was wrong. The fix is the rule the learning step already
+   applied, "the preceding tool batch errored", moved into one function and applied at the
+   gate too; `test_a_recovery_ask_is_never_answered_from_feedback` fails on the old guard.
+   Worth saying because the plan did not anticipate that a replacement question carries the
+   original's signature.
 
 ## If something breaks on stage
 
