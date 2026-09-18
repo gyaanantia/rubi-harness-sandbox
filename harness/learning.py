@@ -54,14 +54,31 @@ def shape(row):
     return "judgement"
 
 
-def is_recovery(run, pending_id):
-    """PLAN 10.3: an ask that follows a failed tool call is failure recovery.
+def follows_error(events):
+    """Whether the tool batch that these trace events end with contained an error.
 
-    The plan reads the single nearest finished tool event, assuming the retry question
+    PLAN 10.3 reads the single nearest finished tool event, assuming the retry question
     follows the failed write directly. It does not: a failed write and a successful
     sibling land in one batch, and the sibling finishes last. So the whole tool batch
-    before the ask is read, and any error in it makes the ask recovery.
+    is read, and any error in it makes the ask that follows it recovery.
+
+    The gate calls this with the trace so far, before an ask is registered, so a
+    recovery ask is never answered from feedback. The learning step calls it with the
+    trace up to the ask's gate event, so a recovery ask is never learned from either.
     """
+    statuses = []
+    for event in reversed(events):
+        if event["kind"] == "model":
+            continue  # The model turn that produced the ask sits between batch and gate.
+        if event["kind"] != "tool":
+            break  # A gate or decision event ends the batch this ask followed.
+        if event.get("tool_call_id") and event["status"] in FINISHED:
+            statuses.append(event["status"])
+    return "error" in statuses
+
+
+def is_recovery(run, pending_id):
+    """An ask that follows a failed tool call is failure recovery."""
     gate = next(
         (
             index
@@ -72,15 +89,7 @@ def is_recovery(run, pending_id):
     )
     if gate is None:
         return False
-    statuses = []
-    for event in reversed(run.trace[:gate]):
-        if event["kind"] == "model":
-            continue  # The model turn that produced the ask sits between batch and gate.
-        if event["kind"] != "tool":
-            break  # A gate or decision event ends the batch this ask followed.
-        if event.get("tool_call_id") and event["status"] in FINISHED:
-            statuses.append(event["status"])
-    return "error" in statuses
+    return follows_error(run.trace[:gate])
 
 
 def refusal(run, row):
