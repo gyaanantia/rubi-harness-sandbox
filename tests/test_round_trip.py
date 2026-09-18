@@ -363,6 +363,35 @@ async def test_a_learned_answer_skips_its_card_but_never_a_write_approval(runtim
     assert reused[0]["feedback_id"] and not runtime.gateway.writes
 
 
+async def test_a_recovery_ask_is_never_answered_from_feedback(runtime):
+    await learn_the_source_contact(runtime)
+    asked_once = len(runtime.pending_inputs.rows)
+    runtime.gateway.fail_next("write_crm_field", "auth_error")
+    result, _ = await scripted(
+        runtime,
+        [
+            tool_call(
+                "write_crm_field",
+                deal_id=DEAL_A,
+                field="deal_source_individual",
+                value="contact-a-1",
+            )
+        ],
+        # After the failed write the model asks for a replacement contact with the
+        # same options, so the question carries the learned answer's signature.
+        more=[AIMessage(content="Select a replacement.", tool_calls=[banker_question(1, 2, 3)])],
+    )
+    assert [row.tool_name for row in result["pending"]] == ["write_crm_field"]
+    answer(runtime, result["pending"][0], {"action": "approve"})
+    result = await runtime.resume(result["run_id"], firm_id="firm-a")
+    assert result["paused"] and [row.kind for row in result["pending"]] == ["choose"]
+    assert result["pending"][0].choose["prompt"] == "Which banker should be the deal source?"
+    assert len(runtime.pending_inputs.rows) == asked_once + 2  # the replacement ask is a card
+    trace = runtime.runs.rows[result["run_id"]].trace
+    assert not [e for e in trace if e["kind"] == "decision" and e["status"] == "reused"]
+    assert not runtime.gateway.writes
+
+
 async def test_reuse_needs_the_definition_to_declare_the_guard(runtime):
     await learn_the_source_contact(runtime)
     definition = runtime.definitions.get("firm-a", "cim_screener")
