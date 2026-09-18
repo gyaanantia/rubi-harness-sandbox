@@ -208,7 +208,7 @@ in memory. Test: `tests/test_learning.py::test_a_newer_answer_supersedes_the_old
 **Real model, not the fake.** `SANDBOX_MODEL=gpt-4.1-mini`, one iteration:
 
 ```sh
-uv run python -m eval.replay day2_repeat --n 1 --output-dir replay-output/live41
+uv run python -m eval.replay day2_repeat --n 1 --output-dir replay-output/live
 ```
 
 | Metric | Fake | **Live** | Baseline |

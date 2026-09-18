@@ -1,5 +1,13 @@
 # Rubi harness challenge
 
+> **Submission.** The learning loop is built and merged to `main`. Read
+> [PLAN.md](PLAN.md) first (the design, the alternatives, and the contract the
+> code follows), then [EVIDENCE.md](EVIDENCE.md) (before and after numbers,
+> the negative cases, a live-model run, and one gap found while writing it and
+> since fixed), then [DEMO.md](DEMO.md) (the rehearsed live run). The rest of
+> this file is the original brief; the two passages that described the
+> starting defect are updated below to say what `main` does now.
+
 Build an MVP that helps agents learn from human responses to `request_input`.
 Today, answers are kept in the run record but never reused. A later run of the
 same agent, or another agent working on the same deal, asks the same question
@@ -77,8 +85,10 @@ Save the starting behavior:
 uv run python -m eval.replay day2_repeat --n 1 --fake --output-dir replay-output/before
 ```
 
-**This command is expected to exit 1:** `did_not_reask()` detects the repeated
-banker question. It still writes a JSON report. The other scenarios should pass.
+**At the branch point this command exited 1:** `did_not_reask()` detected the
+repeated banker question and still wrote a JSON report. On `main` it exits 0.
+To reproduce the starting behavior, run it from a worktree at commit `d2534d2`
+(`git worktree add ../before d2534d2`). The other scenarios pass at both.
 
 `day2_repeat` includes all three runs in one process, sharing the stores.
 Each replay iteration starts fresh. Separate CLI processes do not share memory.
@@ -156,16 +166,17 @@ your MVP needs to address.
 ```sh
 uv run ruff check .
 uv run ruff format --check .
-uv run pytest -q -m "not baseline"
-uv run pytest -q -m baseline
+uv run pytest -q
 ```
 
-The `baseline` tests document the starting defect: repeated questions, empty
-memory/preferences, and a failed repeat replay. Replace those expectations
-with tests of your implemented behavior. The other group covers harness
-behavior, including approval, isolation, pause/resume, and error recovery.
+The brief shipped three `baseline` tests, behind a `-m baseline` marker, that
+documented the starting defect: repeated questions, empty memory/preferences,
+and a failed repeat replay. They are replaced by tests of the implemented
+behavior in `tests/test_learning.py`, `tests/test_scenarios.py`, and
+`tests/test_round_trip.py`, and the marker no longer exists. The rest of the
+suite covers harness behavior, including approval, isolation, pause/resume,
+and error recovery.
 
-The final CI step, `Verify the intentional repeat-question failure`, also
-expects the starting defect. Replace it with a successful replay check once
-your learning mechanism is exercised by the test model. Keep the remaining
-scenario checks and explain any necessary changes.
+CI's former `Verify the intentional repeat-question failure` step is replaced
+by two replays that must exit 0, `day2_repeat` and `day2_remember`. The
+`day1_screen`, `unattended`, and `sync_failure` checks are unchanged.
