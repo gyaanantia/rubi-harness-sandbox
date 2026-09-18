@@ -196,7 +196,7 @@ in memory. Test: `tests/test_learning.py::test_a_newer_answer_supersedes_the_old
 | --- | --- |
 | `uv run ruff check .` | pass |
 | `uv run ruff format --check .` | pass |
-| `uv run pytest -q` | **64 passed**, no `baseline` marker remains |
+| `uv run pytest -q` | **65 passed**, no `baseline` marker remains |
 | `eval.replay day1_screen --n 5 --fake` | exit 0 — 4 asks, 2 writes |
 | `eval.replay day2_repeat --n 5 --fake` | exit 0 — 8 asks, 5 writes |
 | `eval.replay day2_remember --n 5 --fake` | exit 0 — 6 asks, 4 writes |
@@ -260,16 +260,23 @@ scope for this branch.
   question about the same three bankers still matches. Text questions match on the normalised
   prompt plus option ids, so a genuinely reworded judgement question does not match and the
   agent asks again. That is deliberate, and untested against a real model's wording.
-- **One known gap in the guard's semantics.** After a failed write, the `map` branch asks for
-  a *replacement* contact using the same prompt and the same options — so it has the same
-  signature, and the guard answers it with the contact that just failed to write. The
-  learning step refuses to *learn* from a recovery ask, but the gate does not refuse to
-  *answer* one. No shipped scenario reaches it (`auto_answer` picks `retry` before `map`) and
-  no write escapes its approval, so nothing is unsafe, but it is wrong and it is the first
-  thing to fix. The plan does not cover this case: §3 rules out reusing the *retry/exclude/map*
-  answer, but the replacement question is an entity ask, which §3 treats as reusable, and
-  nothing anticipated that a replacement carries the same signature as the original. §8's
-  `learn`-hint extension is aimed at the learning step's recovery heuristic, not at the gate,
-  though the same hint would also be the cleanest way to close this. The narrower fix is to
-  refuse reuse at the gate when the immediately preceding tool batch contained an error, which
-  is the rule `learning.is_recovery` already applies after the fact.
+- **One gap in the guard's semantics, found while writing this document and since closed.**
+  After a failed write, the `map` branch asks for a *replacement* contact using the same
+  prompt and the same options — so it has the same signature, and the guard answered it with
+  the contact that just failed to write. The learning step refused to *learn* from a recovery
+  ask, but the gate did not refuse to *answer* one. No shipped scenario reaches it
+  (`auto_answer` picks `retry` before `map`) and no write escapes its approval, so nothing was
+  unsafe, but it was wrong. The plan did not cover this case: §3 rules out reusing the
+  *retry/exclude/map* answer, but the replacement question is an entity ask, which §3 treats
+  as reusable, and nothing anticipated that a replacement carries the same signature as the
+  original.
+
+  The fix is the narrow one: the rule `learning.is_recovery` applied after the run ("the tool
+  batch before this ask contained an error") is now one function, `learning.follows_error`,
+  and the gate's lookup in `guards.reusable_answer` applies it to the trace so far before
+  consulting feedback. A recovery ask is now neither learned from nor answered from feedback.
+  Test: `tests/test_round_trip.py::test_a_recovery_ask_is_never_answered_from_feedback` —
+  a learned source contact, a failed write of it, then the identical entity question: the
+  card is created, no `reused` decision appears, and no write happens. The test fails on the
+  previous guard and passes with this one. All fake replay counts are unchanged. §8's
+  `learn`-hint extension remains the broader, model-supplied version of the same signal.
